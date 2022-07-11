@@ -1,8 +1,10 @@
 import pandas as pd
 from matplotlib import pyplot as plt
+import numpy as np
 import seaborn as sns
 import pickle
 import time
+import math
 from sklearn.model_selection import train_test_split
 from neuralprophet import NeuralProphet
 from sklearn.metrics import accuracy_score,confusion_matrix,classification_report
@@ -22,14 +24,16 @@ def preproc(df, type, useGeo):
         df.Location.unique()
         df.columns
         df['Date'] = pd.to_datetime(df['Date'])
-        # plt.plot(df['Date'], df['Temp3pm'])
-        # plt.show()
+        plt.plot(df['Date'], df['Temp3pm'])
         df['Year'] = df['Date'].apply(lambda x: x.year)
         data = df
         # df = df[df['Year']<=2015]
         # plt.plot(df['Date'], df['Temp3pm'])
+        # plt.title('Rainfall')
         # plt.show()
-        
+        # plt.plot(df['Date'], df['Rainfall'])
+        # plt.title('Temperature')
+        # plt.show()
         
     else:  ## features
         df['Date'] = pd.to_datetime(df['Date'])
@@ -65,11 +69,11 @@ def preproc(df, type, useGeo):
         # sns.heatmap(df[numerical_features].isnull(),linecolor='white')
         # visualizing the Null values in Numerical Features:
 
-        df[numerical_features].isnull().sum().sort_values(ascending = False).plot(kind = 'bar')
-        #checking for outliers using Box Plot:
-
+        # df[numerical_features].isnull().sum().sort_values(ascending = False).plot(kind = 'bar')
+        # checking for outliers using Box Plot:
+        # sns.pairplot(df, hue='RainTomorrow')
         # for feature in numerical_features:
-        #     plt.figure(figsize=(10,10))
+        #     plt.subplot(21,21,i)
         #     sns.boxplot(df[feature])
         #     plt.title(feature)
 
@@ -97,7 +101,6 @@ def preproc(df, type, useGeo):
         # list of numerical Features with Null values:
 
         numerical_features_with_null = [feature for feature in numerical_features if df[feature].isnull().sum()]
-        numerical_features_with_null
         # Filling null values uisng mean: 
 
         for feature in numerical_features_with_null:
@@ -105,22 +108,14 @@ def preproc(df, type, useGeo):
             df[feature].fillna(mean_value,inplace=True)
         df.isnull().sum()
         df.head()
-
+        sns.pairplot(df, hue='RainToday')
+        plt.show()
         df['RainToday'].replace({'No':0, 'Yes': 1}, inplace = True)
 
-        # pd.get_dummies(df['RainToday'],drop_first = True)
 
         df['RainTomorrow'].replace({'No':0, 'Yes': 1}, inplace = True)
-        # print(df['RainTomorrow'].value_counts())#.plot(kind='bar')
+        df['RainTomorrow'].value_counts().plot(kind='bar')
         def encode_data(feature_name):
-    
-            ''' 
-            
-            function which takes feature name as a parameter and return mapping dictionary to replace(or map) categorical data 
-            to numerical data.
-            
-            '''
-            
             mapping_dict = {}
             unique_values = list(df[feature_name].unique())
             for idx in range(len(unique_values)):
@@ -148,36 +143,85 @@ def train(m, data, target, useGeo):
         if target == 'RainTomorrow':
             target = 'Rainfall'
         # data = data.drop_duplicates(subset=['ds'], keep='first')
-        for r in data.Location.unique(): 
-            # d = data[data['Location'] == r]## if r else df
-            # d = d[['Date', target]]
-            # d.dropna(inplace=True)
-            # # data = data.drop_duplicates()
-            # d.columns = ['ds', 'y'] 
-            # print(d.shape)
-            dataout = 'data_'+ 'timeseries_'  + r+  '.pkl'
-            # with open(dataout, "wb") as f:
-            #     pickle.dump(d, f)
+        for r in ['Albany', 'Brisbane']: #data.Location.unique(): 
+            d = data[data['Location'] == r]## if r else df
+            d = d[d['Year']<=2013]
+            d = d[['Date', target]]
+            d.dropna(inplace=True)
+            # data = data.drop_duplicates()
+            
+            d.columns = ['ds', 'y'] 
+            print(d.shape)
+            dataout = 'data_'+ 'timeseries_2012'  + r+  '.pkl'
+            with open(dataout, "wb") as f:
+                pickle.dump(d, f)
             with open(dataout, 'rb') as f:
                 d = pickle.load(f)
-            modelout = 'model_'+ m + '_' + target + '_'+ r + '.pkl'
+            modelout = 'model_'+ m + '_2012_' + target + '_'+ r + '.pkl'
             
             # mod = NeuralProphet()
             # model = mod.fit(d, freq='D')#, epochs=1000)
             
-            scoreout = 'score_'+ m + '_' + target + '_'+ r + '.pkl'
             # with open(modelout, "wb") as f:
             #     pickle.dump(mod, f)
             with open(modelout, 'rb') as f:
                 mod = pickle.load(f)
             future = mod.make_future_dataframe(d, periods=6*365)
-            print(future)
+            
             forecast = mod.predict(future)
-            print('forecast')
-            print(forecast.head())
-            plot1 = mod.plot(forecast)
-            plt2 = mod.plot_components(forecast)
+             # with open(dataout, "wb") as f:
+            #     pickle.dump(d, f)
+            #print('forecast')
+            #print(forecast.head())
+            dfcompare = data[(data['Location'] == r)&(data['Year']>2012)]
+            dfcompare = dfcompare[['Date','Year', 'RainToday', 'RainTomorrow','Rainfall', 'Temp3pm']]
+            forecast['Rainfall_pred'] = forecast['yhat1']
+            forecast['RainToday_pred'] = forecast['yhat1'].apply(lambda x: 1 if x >1 else 0)
+                # rtomorrow_tgt = data['RainTomorrow'][0:forecast.shape[0]]
+                # rtoday_tgt = data['RainToday'][0:forecast.shape[0]]
+                # #rtomorrow_tgt = np.append(rtomorrow_tgt, 0)
+                # forecast['RainTomorrow'] = rtomorrow_tgt
+                # forecast['RainToday'] = rtoday_tgt
 
+            def confmat(df: pd.DataFrame, col1: str, col2: str):
+    
+                return (
+                        df
+                        .groupby([col1, col2])
+                        .size()
+                        .unstack(fill_value=0)
+                        )  
+            print(forecast)
+            
+            forecast = forecast.rename(columns={'ds': 'Date'})
+            print(dfcompare.columns)
+            print(forecast.columns)
+            dfcompare['rain2d'] = dfcompare.apply(lambda r: 1 if (r['RainTomorrow']==1 or r['RainToday']==1) else 0, axis=1)
+
+            dfcompare = pd.merge(dfcompare, forecast, on=['Date'], how='left')
+            cfm = confmat(dfcompare, 'RainToday', 'RainToday_pred')
+            print(cfm)
+            print(dfcompare.columns)
+            esterr =dfcompare.apply(lambda r: (r['Rainfall'] - r['Rainfall_pred'])/r['Rainfall'] if r['Rainfall']> 0 else 0, axis=1)
+            print(esterr)
+            #print(forecast['yhat1'].tolist())
+            # plot1 = mod.plot(forecast)
+            # plt2 = mod.plot_components(forecast)
+            scoreout = 'score_'+ m + '_' + target + '_'+ r + '.pkl'
+            with open(scoreout, 'wb') as file:
+                res = {
+                    'model_type': 'timeseries',
+                    'model': m,
+                    'target': target,
+                    'est_err': esterr,
+                    'useGeo': 'na', 
+                    'processing_time': 'few sec',
+                    'accuracy_score': (cfm.iloc[0,0] + cfm.iloc[1,1])/forecast.shape[0],
+                    'classifier_score_train': 'na',
+                    'classifier_score_test': 'na'
+                }
+                pickle.dump(res, file)
+            print(res)
     elif m == 'logreg':
         # `Spliting data into input features and label`
         if target == 'Temp3pm':
@@ -282,6 +326,18 @@ def train(m, data, target, useGeo):
 
 def explore(t):
     print('Data exploration ' + t)
+    if t == 'timeseries':
+        with open('data_timeseries.pkl', 'rb') as f:
+            data = pickle.load(f)
+    elif t == 'features':
+        with open('data_features.pkl', 'rb') as f:
+            data = pickle.load(f)   
+    plt.subplot(3,1)
+    plt.plot(data['Date'], data['Rainfall'])
+    plt.title('Rainfall')
+    plt.plot(data['Date'], data['Temp3pm'])
+    plt.title('Temp3pm')
+    plt.plot(data['Date'], data['Humidity3pm'])
 
 def perf(t, m, ):
     res = {}
